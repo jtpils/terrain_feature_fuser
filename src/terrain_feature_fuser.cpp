@@ -8,7 +8,6 @@ using namespace std;
 tf::TransformListener* tfListener = NULL;
 bool cloud_ready = false;
 bool image_ready = false;
-string target_frame = "world_corrected";
 
 ros::Publisher  pub_cost;
 image_transport::Publisher pub_img_color, pub_img_grey;

@@ -4,7 +4,7 @@
   <node pkg="terrain_feature_fuser" type="terrain_feature_fuser" name="terrain_feature_fuser" output="screen">
 
     <remap from="/points_raw" to="/cloud_filtered" />
-    <remap from="/image_raw" to="/kinect2/qhd/image_color" />
+    <remap from="/image_raw" to="/camera_right_hand/image_raw" />
     <remap from="/image_seg" to="/segmentation" />
   </node>
   

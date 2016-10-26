@@ -113,8 +113,8 @@ public:
 
 
   //  cv::imshow("image_resized", image_resized);
-   cv::imshow("image", image_seg);
-   cv::waitKey(50);
+  //  cv::imshow("image", image_raw);
+  //  cv::waitKey(50);
 
     return velodyne_cloud;
   }
