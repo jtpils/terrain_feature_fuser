@@ -2,13 +2,6 @@
 #include <tf/transform_listener.h>
 #include <sensor_msgs/point_cloud_conversion.h>
 
-////////////////////////////// terrain related ///////////////////////////
-#include "pointshape_processor.h"
-#include "cloud_image_mapper.h"
-#include "local_scan_buffer.h"
-#include "feature_fuser.h"
-// #include "geometric_classification/cloud_matrix_loador.h"
-
 tf::TransformListener* tfListener = NULL;
 bool cloud_ready = false;
 string target_frame = "world_corrected";

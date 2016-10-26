@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(terrain_classifier)
+project(terrain_feature_fuser)
 
-## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
 find_package(PCL 1.7 REQUIRED COMPONENTS)
 find_package(OpenCV 2.4 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
@@ -28,9 +25,6 @@ catkin_package(
 )
 
 include_directories(
-  /home/xi/workspace/catkin_rcv/src/terrain_feature/terrain/src
-  /home/xi/workspace/catkin_rcv/src/cloud_img_mapper/src
-
   ${OpenCV_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
@@ -43,16 +37,9 @@ link_directories(
 
 add_definitions(${PCL_DEFINITIONS})
 
-add_executable(pluto_terrain_classification src/pluto_terrain_classification.cpp)
-add_executable(geometric_classifier src/geometric_classification/geometric_terrain_classifier.cpp)
+add_executable(terrain_feature_fuser src/terrain_feature_fuser.cpp)
 
-target_link_libraries(pluto_terrain_classification
-  ${OpenCV_LIBRARIES}
-  ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-)
-
-target_link_libraries(geometric_classifier
+target_link_libraries(terrain_feature_fuser
   ${OpenCV_LIBRARIES}
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
