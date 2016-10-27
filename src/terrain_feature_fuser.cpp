@@ -82,8 +82,8 @@ void imageCallback_seg(const sensor_msgs::ImageConstPtr& image_msg)
 void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg,
                const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
-    // if(!cloud_ready || !image_ready)
-    //     return;
+    if(!cloud_ready || !image_ready)
+        return;
 
     cout << "raw image recieved" << endl;
     pcl::PointCloud<pcl::PointXYZRGB> colored_cloud = ci_mapper->cloud_image_mapping(image_msg, info_msg, img_seg_, velodyne_cloud);
