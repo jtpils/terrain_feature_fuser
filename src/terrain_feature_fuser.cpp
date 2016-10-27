@@ -11,7 +11,7 @@ tf::TransformListener* tfListener = NULL;
 bool cloud_ready = false;
 bool image_ready = false;
 
-ros::Publisher  pub_cost;
+ros::Publisher  pub_fused, pub_geometric, pub_vision;
 image_transport::Publisher pub_img_color, pub_img_grey;
 
 pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud;
@@ -87,7 +87,10 @@ void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg,
 
     cout << "raw image recieved" << endl;
     pcl::PointCloud<pcl::PointXYZRGB> colored_cloud = ci_mapper->cloud_image_mapping(image_msg, info_msg, img_seg_, velodyne_cloud);
-    pub_cost.publish(colored_cloud);
+
+    pub_fused.publish(ci_mapper->cloud_f);
+    pub_vision.publish(ci_mapper->cloud_v);
+    pub_geometric.publish(ci_mapper->cloud_g);
 
     // sensor_msgs::ImagePtr msg_color = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_label_color_).toImageMsg();
     // sensor_msgs::ImagePtr msg_grey  = cv_bridge::CvImage(std_msgs::Header(), "mono8", ci_mapper->img_label_grey_).toImageMsg();
@@ -119,12 +122,14 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "terrain_feature_fuser");
 
     ros::NodeHandle node; 
-    tfListener = new (tf::TransformListener);
+    tfListener      = new (tf::TransformListener);
+    ci_mapper       = new Cloud_Image_Mapper(tfListener);
 
-    ci_mapper           = new Cloud_Image_Mapper(tfListener);
+    pub_fused       = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/fused", 1);
+    pub_geometric   = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/geometric", 1);
+    pub_vision      = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/vision", 1);
 
     ros::Subscriber sub_velodyne_left  = node.subscribe<sensor_msgs::PointCloud2>("/points_raw", 1, callback_velodyne);
-    pub_cost = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/label_fused_cloud", 1);
     //image_transport::Publisher pub = it.advertise("camera/image", 1);
     
     image_transport::ImageTransport it(node);

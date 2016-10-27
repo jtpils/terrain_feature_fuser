@@ -23,11 +23,15 @@ class Cloud_Image_Mapper
   tf::TransformListener *tf_listener_;
   image_geometry::PinholeCameraModel cam_model_;
   CvFont font_;
-  //sensor_msgs::PointCloud2 transform_cloud(sensor_msgs::PointCloud2ConstPtr cloud_in, string frame_target);
 
 public:
   Mat img_ori, image_label;
   Mat img_label_grey_, img_label_color_;
+
+  pcl::PointCloud<pcl::PointXYZRGB> cloud_g;
+  pcl::PointCloud<pcl::PointXYZRGB> cloud_v;
+  pcl::PointCloud<pcl::PointXYZRGB> cloud_f;
+
   Cloud_Image_Mapper(tf::TransformListener *tf_listener)
   {
     tf_listener_ = tf_listener;
@@ -57,6 +61,28 @@ public:
     return cloud_out;
   }
 
+  void set_point_color(pcl::PointXYZRGB &point, int label)
+  {
+    if(label == 0)
+    {
+      point.r = 0;
+      point.g = 0;
+      point.b = 0;
+    }
+    else if(label == 100)
+    {
+      point.r = 255;
+      point.g = 255;
+      point.b = 0;
+    }
+    else if(label == 200)
+    {
+      point.r = 255;
+      point.g = 0;
+      point.b = 0;
+    }      
+  }
+
   pcl::PointCloud<pcl::PointXYZRGB> cloud_image_mapping(
                 const sensor_msgs::ImageConstPtr& image_msg,
                 const sensor_msgs::CameraInfoConstPtr& info_msg,
@@ -81,7 +107,16 @@ public:
     cam_model_.fromCameraInfo(info_msg);
 
     pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud = transform_cloud (velodyne_cloud, cam_model_.tfFrame());
-    
+
+    // init result cloud
+    cloud_g.points.clear();
+    cloud_v.points.clear();
+    cloud_f.points.clear();
+
+    cloud_g.header = velodyne_cloud.header;
+    cloud_v.header = velodyne_cloud.header;
+    cloud_f.header = velodyne_cloud.header;
+
     for(int i = 0; i < pcl_cloud.points.size(); i++)
     {
       pcl::PointXYZRGB point = pcl_cloud.points[i];
@@ -98,18 +133,33 @@ public:
       
       if(uv.x >= 0 && uv.x < image_raw.cols && uv.y >= 0 && uv.y < image_raw.rows)
       {
+        pcl::PointXYZRGB point = velodyne_cloud.points[i];
+
         int seg_row         = uv.y * scale_row;
         int seg_col         = uv.x * scale_col;
         int vision_label    = (int)image_seg.at<uchar>(seg_row, seg_col);
         int geomegric_label = velodyne_cloud.points[i].r;
+        int fused_label     = std::min(vision_label, geomegric_label);
 
         // Vec3b label = image_raw.at<Vec3b>(uv.y, uv.x);
 
-        velodyne_cloud.points[i].r = std::min(vision_label, geomegric_label);
-        velodyne_cloud.points[i].g = std::min(vision_label, geomegric_label);
-        velodyne_cloud.points[i].b = std::min(vision_label, geomegric_label);
+        // for fused label
+        set_point_color(point, fused_label);
+        cloud_f.points.push_back(point);
 
-        // cout << (int)label << endl;
+        // for geomegric_label
+        set_point_color(point, geomegric_label);
+        point.z += 2;
+        cloud_g.points.push_back(point);
+
+        // for vision output
+        set_point_color(point, vision_label);
+        point.z += 2;
+        cloud_v.points.push_back(point);
+
+        // velodyne_cloud.points[i].r = std::min(vision_label, geomegric_label);
+        // velodyne_cloud.points[i].g = std::min(vision_label, geomegric_label);
+        // velodyne_cloud.points[i].b = std::min(vision_label, geomegric_label);
       }
     }
 
@@ -118,6 +168,6 @@ public:
   //  cv::imshow("image", image_raw);
   //  cv::waitKey(50);
 
-    return velodyne_cloud;
+    return cloud_f;
   }
 };
