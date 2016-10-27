@@ -3,7 +3,9 @@
 #include <sensor_msgs/point_cloud_conversion.h>
 #include "cloud_image_mapper.h"
 #include "pcl_ros/point_cloud.h"
-
+#include <image_transport/image_transport.h>
+#include <sensor_msgs/CompressedImage.h>
+ 
 using namespace std; 
 tf::TransformListener* tfListener = NULL;
 bool cloud_ready = false;
@@ -66,6 +68,7 @@ sensor_msgs::PointCloud2 transform_cloud(sensor_msgs::PointCloud2 cloud_in, stri
 
 void imageCallback_seg(const sensor_msgs::ImageConstPtr& image_msg)
 {
+    cout << "seg image recieved" << endl;
     if(image_ready)
         return;
 
@@ -79,10 +82,10 @@ void imageCallback_seg(const sensor_msgs::ImageConstPtr& image_msg)
 void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg,
                const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
-    if(!cloud_ready || !image_ready)
-        return;
+    // if(!cloud_ready || !image_ready)
+    //     return;
 
-
+    cout << "raw image recieved" << endl;
     pcl::PointCloud<pcl::PointXYZRGB> colored_cloud = ci_mapper->cloud_image_mapping(image_msg, info_msg, img_seg_, velodyne_cloud);
     pub_cost.publish(colored_cloud);
 
@@ -125,10 +128,10 @@ int main(int argc, char** argv)
     //image_transport::Publisher pub = it.advertise("camera/image", 1);
     
     image_transport::ImageTransport it(node);
-    image_transport::Subscriber sub = it.subscribe("image_seg", 1, imageCallback_seg);
+    image_transport::Subscriber sub = it.subscribe("/image_seg", 1, imageCallback_seg);
 
     image_transport::CameraSubscriber sub_camera;
-    sub_camera = it.subscribeCamera("image_raw", 1, imageCallback_raw);
+    sub_camera = it.subscribeCamera("/image_raw", 1, imageCallback_raw);
 
     pub_img_color  = it.advertise("geometry_color", 1);
     pub_img_grey   = it.advertise("geometry_grey", 1);
