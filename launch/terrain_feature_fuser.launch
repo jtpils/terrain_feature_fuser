@@ -7,6 +7,6 @@
 
     <remap from="/image_raw" to="/kinect2/qhd/image_color" />
     <remap from="/image_seg" to="segmentation" />
-  </node>
+  </node> 
   
 </launch>
