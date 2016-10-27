@@ -19,6 +19,7 @@ pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud;
 Cloud_Image_Mapper *ci_mapper;
 
 sensor_msgs::ImageConstPtr img_seg_;
+ros::Time cloud_in_time_;
 
 void publish(ros::Publisher pub, pcl::PointCloud<pcl::PointXYZRGB> cloud, int type = 2)
 {
@@ -79,16 +80,16 @@ void imageCallback_seg(const sensor_msgs::ImageConstPtr& image_msg)
 }
 
 
-void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg,
-               const sensor_msgs::CameraInfoConstPtr& info_msg)
+void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg)
+            //    const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
-    if(!cloud_ready || !image_ready)
+    cout << "raw image recieved" << endl;
+    if(!image_ready)
         return;
 
-    cout << "raw image recieved" << endl;
-    pcl::PointCloud<pcl::PointXYZRGB> colored_cloud = ci_mapper->cloud_image_mapping(image_msg, info_msg, img_seg_, velodyne_cloud);
+    pcl::PointCloud<pcl::PointXYZRGB> colored_cloud = ci_mapper->cloud_image_mapping(image_msg, img_seg_, velodyne_cloud, cloud_in_time_);
 
-    pub_fused.publish(ci_mapper->cloud_f);
+    pub_fused.publish(colored_cloud);
     pub_vision.publish(ci_mapper->cloud_v);
     pub_geometric.publish(ci_mapper->cloud_g);
 
@@ -103,7 +104,8 @@ void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg,
 
 void process_registered_cloud(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
 {
-    cout << "cloud recieved" << endl;
+    cout << "cloud recieved  " << cloud_in->header.frame_id << endl;
+    cloud_in_time_ = cloud_in->header.stamp;
     // sensor_msgs::PointCloud2 cloud_transformed = transform_cloud(*cloud_in, "world_corrected");
     pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
     pcl::fromROSMsg(*cloud_in, pcl_cloud);
@@ -129,14 +131,16 @@ int main(int argc, char** argv)
     pub_geometric   = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/geometric", 1);
     pub_vision      = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/vision", 1);
 
-    ros::Subscriber sub_velodyne_left  = node.subscribe<sensor_msgs::PointCloud2>("/points_raw", 1, callback_velodyne);
+    ros::Subscriber sub_cloud           = node.subscribe<sensor_msgs::PointCloud2>("/points_raw", 1, callback_velodyne);
+    ros::Subscriber sub_image_seg       = node.subscribe<sensor_msgs::Image>("/image_seg", 1, imageCallback_seg);
     //image_transport::Publisher pub = it.advertise("camera/image", 1);
     
     image_transport::ImageTransport it(node);
-    image_transport::Subscriber sub = it.subscribe("/image_seg", 1, imageCallback_seg);
+    // image_transport::Subscriber sub_seg = it.subscribe("/image_seg", 1, imageCallback_seg);
+    image_transport::Subscriber sub_raw = it.subscribe("/image_raw", 1, imageCallback_raw);
 
-    image_transport::CameraSubscriber sub_camera;
-    sub_camera = it.subscribeCamera("/image_raw", 1, imageCallback_raw);
+    // image_transport::CameraSubscriber sub_camera;
+    // sub_camera = it.subscribeCamera("/image_raw", 1, imageCallback_raw);
 
     pub_img_color  = it.advertise("geometry_color", 1);
     pub_img_grey   = it.advertise("geometry_grey", 1);
