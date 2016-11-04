@@ -15,6 +15,8 @@
 #include <pcl_ros/transforms.h>
 #include <pcl_conversions/pcl_conversions.h>
 
+#include <pcl/filters/passthrough.h>
+
 using namespace std;
 using namespace cv;
 
@@ -32,7 +34,7 @@ public:
   ros::Time cloud_in_time_;
 
   Mat img_ori, image_label;
-  Mat img_label_grey_, img_label_color_;
+  Mat img_seg_, img_geo_, img_fused_, img_depth_, img_all_;
 
   pcl::PointCloud<pcl::PointXYZRGB> cloud_g;
   pcl::PointCloud<pcl::PointXYZRGB> cloud_v;
@@ -96,7 +98,7 @@ public:
     {
       point.r = 0;
       point.g = 0;
-      point.b = 0;
+      point.b = 255;
     }
     else if(label == ROUGH)
     {
@@ -110,6 +112,31 @@ public:
       point.g = 0;
       point.b = 0;
     }      
+  }
+
+  Scalar get_pixel_color(int label)
+  {
+    Scalar pix_color;
+    if(label == FLAT)
+    {
+      pix_color.val[2] = 0;
+      pix_color.val[1] = 0;
+      pix_color.val[0] = 255;
+    }
+    else if(label == ROUGH)
+    {
+      pix_color.val[2] = 255;
+      pix_color.val[1] = 255;
+      pix_color.val[0] = 0;
+    }
+    else if(label == OBS)
+    {
+      pix_color.val[2] = 255;
+      pix_color.val[1] = 0;
+      pix_color.val[0] = 0;
+    }      
+
+    return pix_color;
   }
 
   pcl::PointCloud<pcl::PointXYZRGB> cloud_image_mapping(
@@ -126,44 +153,50 @@ public:
     cout << "in mapping function" << endl;
     Mat image_raw, image_seg;
     try {
-      image_raw = cv_bridge::toCvShare(image_msg, "bgr8")->image;
-      image_seg = cv_bridge::toCvShare(image_seg_ptr, "8UC1")->image;
+      image_raw       = cv_bridge::toCvShare(image_msg, "bgr8")->image;
+      image_seg       = cv_bridge::toCvShare(image_seg_ptr, "8UC1")->image;
     }
     catch (cv_bridge::Exception& ex){
       cout << ex.what() << endl;
     }
 
-    float scale_row = (float)image_seg.rows / (float)image_raw.rows; 
-    float scale_col = (float)image_seg.cols / (float)image_raw.cols; 
+    float scale_row   = (float)image_seg.rows / (float)image_raw.rows; 
+    float scale_col   = (float)image_seg.cols / (float)image_raw.cols; 
 
    // read camera information
     // cam_model_.fromCameraInfo(info_msg);
 
     string image_frame_id;
     if(image_msg->header.frame_id == "kinect2_rgb_optical_frame")
-      image_frame_id = image_msg->header.frame_id;
+      image_frame_id  = image_msg->header.frame_id;
     else 
-      image_frame_id = "overhead_camera_link";
+      image_frame_id  = "overhead_camera_link";
     
-    cloud_in_time_ = cloud_in_time;
+    cloud_in_time_    = cloud_in_time;
     // init result cloud
     cloud_g.points.clear();
     cloud_v.points.clear();
     cloud_f.points.clear();
 
-    cloud_g.header = velodyne_cloud.header;
-    cloud_v.header = velodyne_cloud.header;
-    cloud_f.header = velodyne_cloud.header;
+    cloud_g.header    = velodyne_cloud.header;
+    cloud_v.header    = velodyne_cloud.header;
+    cloud_f.header    = velodyne_cloud.header;
 
     pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud = transform_cloud (velodyne_cloud, image_msg->header.frame_id);
 
+    // init output image
+    img_seg_          = image_raw.clone();
+    img_geo_          = image_raw.clone();
+    img_fused_        = image_raw.clone();
+    img_depth_        = Mat(image_raw.rows, image_raw.cols, CV_32FC4, Scalar(0));
+
     for(int i = 0; i < pcl_cloud.points.size(); i++)
     {
-      pcl::PointXYZRGB point = pcl_cloud.points[i];
-      if(point.z < 0 || abs(point.x) > 6)
+      pcl::PointXYZRGB point_transd = pcl_cloud.points[i];
+      if(point_transd.z < 0 || abs(point_transd.x) > 6)
         continue;
       
-      cv::Point3d pt_cv(point.x, point.y, point.z);
+      cv::Point3d pt_cv(point_transd.x, point_transd.y, point_transd.z);
       
       cv::Point2d uv;
       // uv = cam_model_.project3dToPixel(pt_cv);
@@ -180,12 +213,19 @@ public:
         int seg_col         = uv.x * scale_col;
         int vision_label    = (int)image_seg.at<uchar>(seg_row, seg_col);
         int geomegric_label = velodyne_cloud.points[i].r;
-        // int fused_label     = std::min(vision_label, geomegric_label);
-        int fused_label     = geomegric_label;
-        if(vision_label == ROUGH)
-          fused_label = vision_label;
+        int fused_label     = std::max(vision_label, geomegric_label);
+        // int fused_label     = geomegric_label;
+        // if(vision_label == ROUGH)
+        //   fused_label = vision_label;
 
-        Vec3b raw_color = image_raw.at<Vec3b>(uv.y, uv.x);
+                // for output images
+        Scalar color_f       = get_pixel_color(fused_label);
+        Scalar color_v       = get_pixel_color(vision_label);
+        Scalar color_g       = get_pixel_color(geomegric_label);
+
+        cv::circle(img_seg_, uv, 5, color_v, -1);  
+        cv::circle(img_geo_, uv, 5, color_g, -1);
+        cv::circle(img_fused_, uv, 5, color_f, -1);  
 
         // for fused label
         set_point_color(point, fused_label);
@@ -201,17 +241,139 @@ public:
         point.z += 2;
         cloud_v.points.push_back(point);
 
-        velodyne_cloud.points[i].r = raw_color.val[0];
-        velodyne_cloud.points[i].g = raw_color.val[1];
-        velodyne_cloud.points[i].b = raw_color.val[2];
+        if(point_transd.z > 20)
+          point_transd.z = 20;
+
+        uchar depth = 255 / 20 * point_transd.z;
+        cv::circle(img_depth_, uv, 5, depth, -1);  
+        // img_depth_.at<uchar>(uv.y, uv.x) = depth;
+
+        // // project raw image color to the point cloud
+        // Vec3b raw_color = image_raw.at<Vec3b>(uv.y, uv.x);
+        // velodyne_cloud.points[i].r = raw_color.val[0];
+        // velodyne_cloud.points[i].g = raw_color.val[1];
+        // velodyne_cloud.points[i].b = raw_color.val[2];
+
+            // float alpht = 0.5;
+    // addWeighted(image, alpht, image_display, 1-alpht, 0, output);
       }
     }
 
 
-  //  cv::imshow("image_resized", image_resized);
-  //  cv::imshow("image", image_raw);
-  //  cv::waitKey(50);
+   cv::imshow("depth", img_depth_);
+  //  cv::imshow("img_geo_", img_geo_);
+  //  cv::imshow("img_fused_", img_fused_);
+   cv::waitKey(50);
 
     return cloud_f;
+  }
+
+
+
+pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB> cloud)
+{
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr  input_cloud       (new pcl::PointCloud<pcl::PointXYZRGB>(cloud));
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr  cloud_passthrough (new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    cout << "before filter  " << input_cloud->points.size() << endl;
+
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pass.setInputCloud (input_cloud);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (1, 1000);
+    //pass.setFilterLimitsNegative (true);
+    pass.filter (*cloud_passthrough);
+    // cout << "after z filter  " << cloud_passthrough->points.size() << endl;
+
+    pass.setInputCloud (cloud_passthrough);
+    pass.setFilterFieldName ("x");
+    pass.setFilterLimits (-10, 10);
+    pass.filter (*cloud_passthrough);
+    // cout << "after x filter  " << cloud_passthrough->points.size() << endl;
+
+    // pass.setInputCloud (cloud_passthrough);
+    // pass.setFilterFieldName ("y");
+    // pass.setFilterLimits (-map_broad_/2, map_broad_/2);
+    // pass.filter (*cloud_passthrough);
+    // cout << "after y filter  " << cloud_passthrough->points.size() << endl;
+
+    return *cloud_passthrough;
+}
+
+  Mat get_disparity(const sensor_msgs::ImageConstPtr& image_msg,
+                    pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud)
+  {   
+    Mat image_raw;
+
+    cout << "in get_disparity function" << endl;
+    if(velodyne_cloud.points.size() == 0)
+      return image_raw;
+      
+    try {
+      image_raw = cv_bridge::toCvShare(image_msg, "bgr8")->image;
+    }
+    catch (cv_bridge::Exception& ex){
+      cout << ex.what() << endl;
+    }
+
+    string image_frame_id;
+    if(image_msg->header.frame_id == "kinect2_rgb_optical_frame")
+      image_frame_id  = image_msg->header.frame_id;
+    else 
+      image_frame_id  = "overhead_camera_link";
+
+    pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud = transform_cloud (velodyne_cloud, image_msg->header.frame_id);
+    pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud_filtered = cloud_filter(pcl_cloud);
+
+    // init output image
+    img_depth_ = Mat(image_raw.rows, image_raw.cols, CV_16UC1, Scalar(0));
+    img_all_   = Mat(image_raw.rows, image_raw.cols, CV_16UC4, Scalar(0));
+
+    float f = 2262.52;
+    float base_line = 0.209313;
+    float scale = f*base_line/1.7;
+
+    for(int i = 0; i < pcl_cloud_filtered.points.size(); i++)
+    {
+      pcl::PointXYZRGB point_transd = pcl_cloud_filtered.points[i];
+      if(point_transd.z < 0 || abs(point_transd.x) > 6)
+        continue;
+      
+      cv::Point3d pt_cv(point_transd.x, point_transd.y, point_transd.z);
+      
+      cv::Point2d uv;
+      uv = project3D_to_image(pt_cv, image_frame_id);
+
+      static const int RADIUS = 7;
+      
+      if(uv.x >= 0 && uv.x < image_raw.cols && uv.y >= 0 && uv.y < image_raw.rows)
+      {
+        pcl::PointXYZRGB point = velodyne_cloud.points[i];
+        unsigned short depth = scale/point_transd.z * 256 + 1;
+        // img_depth_.at<unsigned short>(uv.y, uv.x) = depth;
+        cv::circle(img_depth_, uv, 3, depth, -1);  
+      }
+    }
+
+    for(int row; row < image_raw.rows; row ++)
+    {
+      for(int col; col < image_raw.cols; col ++)
+      {
+        Vec4s u4_value;
+        Vec3b raw_color = image_raw.at<Vec3b>(row, col);
+        unsigned short depth = image_raw.at<unsigned short>(row, col);
+
+        u4_value.val[0] = raw_color.val[0];
+        u4_value.val[0] = raw_color.val[0];
+        u4_value.val[0] = raw_color.val[0];
+        u4_value.val[0] = depth;
+
+        img_all_.at<Vec4s>(row, col) = u4_value;
+      }
+    }
+
+    return img_all_;
+  //  cv::imshow("depth", img_all_);
+  //  cv::waitKey(50);
   }
 };

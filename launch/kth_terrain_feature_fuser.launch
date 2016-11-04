@@ -4,6 +4,7 @@
   <node pkg="terrain_feature_fuser" type="terrain_feature_fuser" name="terrain_feature_fuser" output="screen">
     <param name="image_transport" value="raw" />
     <remap from="/points_raw" to="/cloud_filtered" />
+    <remap from="/points_classified" to="/mapping_nodelet/pointcloud" />
 
     <remap from="/image_raw" to="/kinect2/qhd/image_color" />
     <remap from="/image_seg" to="segmentation" />

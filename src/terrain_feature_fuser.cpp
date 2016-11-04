@@ -10,15 +10,17 @@ using namespace std;
 tf::TransformListener* tfListener = NULL;
 bool cloud_ready = false;
 bool image_ready = false;
+bool image_raw_ready = false;
 
 ros::Publisher  pub_fused, pub_geometric, pub_vision;
-image_transport::Publisher pub_img_color, pub_img_grey;
+image_transport::Publisher pub_img_seg, pub_img_geo, pub_img_fused, pub_img_rgbd;
 
 pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud;
 
 Cloud_Image_Mapper *ci_mapper;
 
 sensor_msgs::ImageConstPtr img_seg_;
+sensor_msgs::ImageConstPtr img_raw_;
 ros::Time cloud_in_time_;
 
 void publish(ros::Publisher pub, pcl::PointCloud<pcl::PointXYZRGB> cloud, int type = 2)
@@ -84,6 +86,9 @@ void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg)
             //    const sensor_msgs::CameraInfoConstPtr& info_msg)
 {
     cout << "raw image recieved" << endl;
+    img_raw_ = image_msg;
+    image_raw_ready = true;
+
     if(!image_ready)
         return;
 
@@ -93,11 +98,14 @@ void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg)
     pub_vision.publish(ci_mapper->cloud_v);
     pub_geometric.publish(ci_mapper->cloud_g);
 
-    // sensor_msgs::ImagePtr msg_color = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_label_color_).toImageMsg();
-    // sensor_msgs::ImagePtr msg_grey  = cv_bridge::CvImage(std_msgs::Header(), "mono8", ci_mapper->img_label_grey_).toImageMsg();
+    sensor_msgs::ImagePtr img_v = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_seg_).toImageMsg();
+    sensor_msgs::ImagePtr img_g  = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_geo_).toImageMsg();
+    sensor_msgs::ImagePtr img_f  = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_fused_).toImageMsg();
 
-    // pub_img_color.publish(msg_color);
-    // pub_img_grey.publish(msg_grey);
+    pub_img_seg.publish(img_v);
+    pub_img_geo.publish(img_g);
+    pub_img_fused.publish(img_f);
+
     cloud_ready = false;
     image_ready = false;
 }
@@ -112,6 +120,22 @@ void process_registered_cloud(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
 
     velodyne_cloud = pcl_cloud;
     cloud_ready = true; 
+}
+
+void callback_rawcloud(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
+{
+    if(!image_raw_ready)
+        return;
+
+    cout << "cloud recieved callback_rawcloud " << cloud_in->header.frame_id << endl;
+    cloud_in_time_ = cloud_in->header.stamp;
+    pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud;
+    pcl::fromROSMsg(*cloud_in, pcl_cloud);
+
+    Mat img_rgbd = ci_mapper->get_disparity(img_raw_, pcl_cloud);
+
+    sensor_msgs::ImagePtr img_rgbd_msg = cv_bridge::CvImage(std_msgs::Header(), "rgba16", img_rgbd).toImageMsg();
+    pub_img_rgbd.publish(img_rgbd_msg);
 }
 
 void callback_velodyne(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
@@ -131,6 +155,7 @@ int main(int argc, char** argv)
     pub_geometric   = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/geometric", 1);
     pub_vision      = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/vision", 1);
 
+    ros::Subscriber sub_cloud_raw       = node.subscribe<sensor_msgs::PointCloud2>("/points_classified", 1, callback_rawcloud);
     ros::Subscriber sub_cloud           = node.subscribe<sensor_msgs::PointCloud2>("/points_raw", 1, callback_velodyne);
     ros::Subscriber sub_image_seg       = node.subscribe<sensor_msgs::Image>("/image_seg", 1, imageCallback_seg);
     //image_transport::Publisher pub = it.advertise("camera/image", 1);
@@ -142,8 +167,10 @@ int main(int argc, char** argv)
     // image_transport::CameraSubscriber sub_camera;
     // sub_camera = it.subscribeCamera("/image_raw", 1, imageCallback_raw);
 
-    pub_img_color  = it.advertise("geometry_color", 1);
-    pub_img_grey   = it.advertise("geometry_grey", 1);
+    pub_img_seg    = it.advertise("/terrain_classifer/label_seg", 1);
+    pub_img_geo    = it.advertise("/terrain_classifer/label_geometric", 1);
+    pub_img_fused  = it.advertise("/terrain_classifer/label_fused", 1);
+    pub_img_rgbd   = it.advertise("/terrain_classifer/rgbd", 1);
     ros::spin();
 
     return 0;
