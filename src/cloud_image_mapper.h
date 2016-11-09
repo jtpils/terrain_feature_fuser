@@ -34,7 +34,7 @@ public:
   ros::Time cloud_in_time_;
 
   Mat img_ori, image_label;
-  Mat img_seg_, img_geo_, img_fused_, img_depth_, img_all_;
+  Mat img_seg_, img_geo_, img_fused_, img_depth_, img_all_, img_rgb_;
 
   pcl::PointCloud<pcl::PointXYZRGB> cloud_g;
   pcl::PointCloud<pcl::PointXYZRGB> cloud_v;
@@ -82,6 +82,8 @@ public:
     catch (tf::TransformException& ex) 
     {
       ROS_WARN("[draw_frames] TF exception in Cloud_Image_Mapper:\n%s", ex.what());
+      cloud_out.points.clear();
+      return cloud_out;
     }
     
     Eigen::Matrix4f eigen_transform;
@@ -172,7 +174,8 @@ public:
     else 
       image_frame_id  = "overhead_camera_link";
     
-    cloud_in_time_    = cloud_in_time;
+    // cloud_in_time_    = cloud_in_time;
+    cloud_in_time_ = image_msg->header.stamp;
     // init result cloud
     cloud_g.points.clear();
     cloud_v.points.clear();
@@ -183,6 +186,11 @@ public:
     cloud_f.header    = velodyne_cloud.header;
 
     pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud = transform_cloud (velodyne_cloud, image_msg->header.frame_id);
+    if(pcl_cloud.points.size() == 0)
+    {
+        cout << "transform error" << endl;
+        return velodyne_cloud;
+    }
 
     // init output image
     img_seg_          = image_raw.clone();
@@ -280,7 +288,7 @@ pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB>
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud (input_cloud);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (1, 1000);
+    pass.setFilterLimits (1, 200);
     //pass.setFilterLimitsNegative (true);
     pass.filter (*cloud_passthrough);
     // cout << "after z filter  " << cloud_passthrough->points.size() << endl;
@@ -291,10 +299,10 @@ pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB>
     pass.filter (*cloud_passthrough);
     // cout << "after x filter  " << cloud_passthrough->points.size() << endl;
 
-    // pass.setInputCloud (cloud_passthrough);
-    // pass.setFilterFieldName ("y");
-    // pass.setFilterLimits (-map_broad_/2, map_broad_/2);
-    // pass.filter (*cloud_passthrough);
+    pass.setInputCloud (cloud_passthrough);
+    pass.setFilterFieldName ("y");
+    pass.setFilterLimits (-5, 5);
+    pass.filter (*cloud_passthrough);
     // cout << "after y filter  " << cloud_passthrough->points.size() << endl;
 
     return *cloud_passthrough;
@@ -304,13 +312,13 @@ pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB>
                     pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud)
   {   
     Mat image_raw;
-
-    cout << "in get_disparity function" << endl;
+    // init output image
     if(velodyne_cloud.points.size() == 0)
       return image_raw;
       
     try {
       image_raw = cv_bridge::toCvShare(image_msg, "bgr8")->image;
+      img_rgb_ = image_raw.clone();
     }
     catch (cv_bridge::Exception& ex){
       cout << ex.what() << endl;
@@ -323,12 +331,21 @@ pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB>
       image_frame_id  = "overhead_camera_link";
 
     pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud = transform_cloud (velodyne_cloud, image_msg->header.frame_id);
-    pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud_filtered = cloud_filter(pcl_cloud);
+    if(pcl_cloud.points.size() == 0)
+    {
+        cout << "transform error" << endl;
+        return image_raw;
+    }
 
-    // init output image
     img_depth_ = Mat(image_raw.rows, image_raw.cols, CV_16UC1, Scalar(0));
     img_all_   = Mat(image_raw.rows, image_raw.cols, CV_16UC4, Scalar(0));
+    Mat img_depth_display_   = Mat(image_raw.rows, image_raw.cols, CV_16UC1, Scalar(0));
 
+    cout << "in get_disparity function" << img_all_.rows << " " << img_all_.cols << endl;
+
+
+    pcl::PointCloud<pcl::PointXYZRGB> pcl_cloud_filtered = cloud_filter(pcl_cloud);
+    cout << "after filting" << endl;
     float f = 2262.52;
     float base_line = 0.209313;
     float scale = f*base_line/1.7;
@@ -351,29 +368,35 @@ pcl::PointCloud<pcl::PointXYZRGB> cloud_filter(pcl::PointCloud<pcl::PointXYZRGB>
         pcl::PointXYZRGB point = velodyne_cloud.points[i];
         unsigned short depth = scale/point_transd.z * 256 + 1;
         // img_depth_.at<unsigned short>(uv.y, uv.x) = depth;
-        cv::circle(img_depth_, uv, 3, depth, -1);  
+
+        unsigned short depth_before = img_depth_.at<unsigned short>(uv.y, uv.x);
+
+        if(depth_before < depth)
+          cv::circle(img_depth_, uv, 5, depth, -1);  
       }
     }
+    cout << "got depth image" << img_all_.rows << " " << img_all_.cols << endl;
 
-    for(int row; row < image_raw.rows; row ++)
+    for(int row = 0; row < image_raw.rows; row ++)
     {
-      for(int col; col < image_raw.cols; col ++)
+      for(int col = 0; col < image_raw.cols; col ++)
       {
         Vec4s u4_value;
-        Vec3b raw_color = image_raw.at<Vec3b>(row, col);
-        unsigned short depth = image_raw.at<unsigned short>(row, col);
+        Vec3b raw_color = image_raw.ptr<Vec3b>(row)[col];
+        unsigned short depth = img_depth_.ptr<unsigned short>(row)[col];
 
-        u4_value.val[0] = raw_color.val[0];
-        u4_value.val[0] = raw_color.val[0];
-        u4_value.val[0] = raw_color.val[0];
-        u4_value.val[0] = depth;
+        u4_value.val[0] = (unsigned short) (raw_color.val[0]);
+        u4_value.val[1] = (unsigned short) (raw_color.val[1]);
+        u4_value.val[2] = (unsigned short) (raw_color.val[2]);
+        u4_value.val[3] = depth;
 
-        img_all_.at<Vec4s>(row, col) = u4_value;
+        img_all_.ptr<Vec4s>(row)[col] = u4_value;
+        img_depth_display_.ptr<unsigned short>(row)[col] = depth;
       }
     }
-
-    return img_all_;
-  //  cv::imshow("depth", img_all_);
-  //  cv::waitKey(50);
+    cout << "got all image " << img_all_.rows << " " << img_all_.cols << endl;
+//   imshow("depth", img_depth_display_);
+//   waitKey(50);
+  return img_all_;  
   }
 };

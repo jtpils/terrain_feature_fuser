@@ -13,7 +13,7 @@ bool image_ready = false;
 bool image_raw_ready = false;
 
 ros::Publisher  pub_fused, pub_geometric, pub_vision;
-image_transport::Publisher pub_img_seg, pub_img_geo, pub_img_fused, pub_img_rgbd;
+image_transport::Publisher pub_img_seg, pub_img_geo, pub_img_fused, pub_img_rgbd, pub_img_depth, pub_img_rgb;
 
 pcl::PointCloud<pcl::PointXYZRGB> velodyne_cloud;
 
@@ -101,7 +101,7 @@ void imageCallback_raw(const sensor_msgs::ImageConstPtr& image_msg)
     sensor_msgs::ImagePtr img_v = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_seg_).toImageMsg();
     sensor_msgs::ImagePtr img_g  = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_geo_).toImageMsg();
     sensor_msgs::ImagePtr img_f  = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_fused_).toImageMsg();
-
+    
     pub_img_seg.publish(img_v);
     pub_img_geo.publish(img_g);
     pub_img_fused.publish(img_f);
@@ -135,7 +135,12 @@ void callback_rawcloud(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
     Mat img_rgbd = ci_mapper->get_disparity(img_raw_, pcl_cloud);
 
     sensor_msgs::ImagePtr img_rgbd_msg = cv_bridge::CvImage(std_msgs::Header(), "rgba16", img_rgbd).toImageMsg();
+    sensor_msgs::ImagePtr img_d        = cv_bridge::CvImage(std_msgs::Header(), "mono16", ci_mapper->img_depth_).toImageMsg();
+    sensor_msgs::ImagePtr img_rgb      = cv_bridge::CvImage(std_msgs::Header(), "bgr8", ci_mapper->img_rgb_).toImageMsg();
+    
+    pub_img_depth.publish(img_d);
     pub_img_rgbd.publish(img_rgbd_msg);
+    pub_img_rgb.publish(img_rgb);
 }
 
 void callback_velodyne(const sensor_msgs::PointCloud2ConstPtr &cloud_in)
@@ -151,9 +156,9 @@ int main(int argc, char** argv)
     tfListener      = new (tf::TransformListener);
     ci_mapper       = new Cloud_Image_Mapper(tfListener);
 
-    pub_fused       = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/fused", 1);
-    pub_geometric   = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/geometric", 1);
-    pub_vision      = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifer/vision", 1);
+    pub_fused       = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifier/fused", 1);
+    pub_geometric   = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifier/geometric", 1);
+    pub_vision      = node.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/terrain_classifier/vision", 1);
 
     ros::Subscriber sub_cloud_raw       = node.subscribe<sensor_msgs::PointCloud2>("/points_classified", 1, callback_rawcloud);
     ros::Subscriber sub_cloud           = node.subscribe<sensor_msgs::PointCloud2>("/points_raw", 1, callback_velodyne);
@@ -167,10 +172,12 @@ int main(int argc, char** argv)
     // image_transport::CameraSubscriber sub_camera;
     // sub_camera = it.subscribeCamera("/image_raw", 1, imageCallback_raw);
 
-    pub_img_seg    = it.advertise("/terrain_classifer/label_seg", 1);
-    pub_img_geo    = it.advertise("/terrain_classifer/label_geometric", 1);
-    pub_img_fused  = it.advertise("/terrain_classifer/label_fused", 1);
-    pub_img_rgbd   = it.advertise("/terrain_classifer/rgbd", 1);
+    pub_img_seg    = it.advertise("/terrain_classifier/label_seg", 1);
+    pub_img_geo    = it.advertise("/terrain_classifier/label_geometric", 1);
+    pub_img_fused  = it.advertise("/terrain_classifier/label_fused", 1);
+    pub_img_rgbd   = it.advertise("/terrain_classifier/rgbd", 1);
+    pub_img_depth  = it.advertise("/terrain_classifier/depth", 1);
+    pub_img_rgb    = it.advertise("/terrain_classifier/rgb", 1);
     ros::spin();
 
     return 0;
